@@ -7,12 +7,14 @@ Rectangle {
     property bool danger: false
     property bool active: false
     property int fontSize: 11
+    property int pillHeight: 26
+    property bool hoverFx: true      // off for pills that sit on top of a hover-tracked card (avoids hover flicker)
     // palette: { fg, mute, acc, ring, danger }, passed in from shell.qml
     property var pal: ({ fg: "#ececef", mute: "#8d8d96", acc: "#8fb0ff", ring: "#1fffffff", danger: "#ff6b6b" })
     signal clicked()
 
     implicitWidth: lbl.implicitWidth + 22
-    implicitHeight: 26
+    implicitHeight: pillHeight
     radius: height / 2
     color: area.pressed ? (danger ? pal.danger : pal.acc)
          : (danger && area.containsMouse) ? Qt.rgba(1, 0.42, 0.42, 0.35)
@@ -31,7 +33,7 @@ Rectangle {
     MouseArea {
         id: area
         anchors.fill: parent
-        hoverEnabled: true
+        hoverEnabled: pill.hoverFx
         onClicked: pill.clicked()
     }
 }
