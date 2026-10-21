@@ -71,6 +71,7 @@ ShellRoot {
 
     property bool busy: false            // an item is being dragged / resized / panned
     property bool grace: false
+    property bool touched: false         // once you click anything, the peek stays open until you close it
     property real zoom: 1
     property real panX: 0
     property real panY: 0
@@ -121,6 +122,7 @@ ShellRoot {
         if (screen) screenTarget = screen;
         switchScreen(screenTarget.name);
         grace = true;
+        touched = false;
         graceTimer.restart();
         mode = 1;
     }
@@ -134,7 +136,7 @@ ShellRoot {
     Timer {
         id: hideTimer
         interval: 450
-        running: root.mode === 1 && !root.grace && !panelHover.hovered && !root.busy && !root.dragging
+        running: root.mode === 1 && !root.grace && !root.touched && !panelHover.hovered && !root.busy && !root.dragging
                  && !root.settingsOpen && !root.confirmOpen && root.editingId === "" && !search.activeFocus
         onTriggered: root.hide()
     }
@@ -331,7 +333,7 @@ ShellRoot {
         copyProc.command = ["sh", "-c", script, "sh", arg];
         copyProc.running = true;
         toast("Copied");
-        if (autoPaste || mode === 1) hide();
+        if (autoPaste) hide();
     }
 
     function deleteClip(cid) {
@@ -715,6 +717,11 @@ ShellRoot {
             clip: true
 
             HoverHandler { id: panelHover }
+            // any press inside the panel means "I'm using it": stop auto-hiding (passive, doesn't eat clicks)
+            PointHandler {
+                acceptedButtons: Qt.AllButtons
+                onActiveChanged: if (active) root.touched = true
+            }
 
             Rectangle {
                 x: 0; y: -24
@@ -727,9 +734,19 @@ ShellRoot {
                 Behavior on color { ColorAnimation { duration: 300 } }
             }
 
+            // everything on the canvas (dots, cards) lives inside this inset, clipped viewport, so nothing
+            // can poke out past the panel's rounded corners and there's always a small gap at the border
+            Item {
+                id: viewport
+                anchors.fill: parent
+                anchors.margins: 10
+                clip: true
+
             Canvas {
                 id: dots
+                readonly property real inset: 6
                 anchors.fill: parent
+                anchors.margins: inset
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
                 onPaint: {
@@ -737,7 +754,8 @@ ShellRoot {
                     ctx.clearRect(0, 0, width, height);
                     const g = 26 * root.zoom;
                     if (g < 6) return;
-                    const ox = ((root.panX % g) + g) % g, oy = ((root.panY % g) + g) % g;
+                    // the canvas is inset, so shift the grid to stay aligned with the items
+                    const ox = (((root.panX - inset) % g) + g) % g, oy = (((root.panY - inset) % g) + g) % g;
                     ctx.fillStyle = root.cDot;
                     ctx.beginPath();
                     for (let x = ox; x < width; x += g)
@@ -864,13 +882,22 @@ ShellRoot {
                         readonly property real hoverScale: Math.min(4, Math.max(1.08, 1.15 / root.zoom))
                         property real sc: 1   // latched while dragging/resizing so nothing jumps
 
-                        function refreshScale() { if (!root.busy) sc = (hovered && matched) ? hoverScale : 1; }
+                        // no hover-grow while typing (search or editing) and none while dragging/resizing
+                        function refreshScale() {
+                            if (root.busy || editing) return;
+                            sc = (hovered && matched && root.editingId === "" && !search.activeFocus) ? hoverScale : 1;
+                        }
                         onHoveredChanged: refreshScale()
                         onMatchedChanged: refreshScale()
                         Connections {
                             target: root
                             function onBusyChanged() { card.refreshScale(); }
                             function onZoomChanged() { card.refreshScale(); }
+                            function onEditingIdChanged() { card.refreshScale(); }
+                        }
+                        Connections {
+                            target: search
+                            function onActiveFocusChanged() { card.refreshScale(); }
                         }
 
                         x: px
@@ -1153,6 +1180,8 @@ ShellRoot {
                 }
             }
 
+            }   // end viewport
+
             // ============================================================ chrome
             // grip
             Rectangle {
@@ -1253,6 +1282,7 @@ ShellRoot {
                 spacing: 6
                 Pill { text: "+ Note"; pal: root.pal; onClicked: root.addNote() }
                 Pill { text: "⚙"; pal: root.pal; active: root.settingsOpen; implicitWidth: 30; fontSize: 13; onClicked: root.settingsOpen = !root.settingsOpen }
+                Pill { text: "✕"; pal: root.pal; danger: true; implicitWidth: 30; onClicked: root.hide() }
             }
 
             Pill {
