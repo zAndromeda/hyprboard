@@ -491,12 +491,12 @@ ShellRoot {
             if (l) {
                 x = l.px; y = l.py;
                 clips.setProperty(i, "pw", l.pw); clips.setProperty(i, "ph", l.ph);
-                clips.setProperty(i, "ps", l.ps); clips.setProperty(i, "pr", l.pr);
+                clips.setProperty(i, "ps", l.ps); clips.setProperty(i, "pr", 0);
                 clips.setProperty(i, "mw", l.mw || 0); clips.setProperty(i, "mh", l.mh || 0);
             } else {
                 const p = freeSpot(c.pinned, arr);
                 x = p.x; y = p.y;
-                clips.setProperty(i, "pr", (Math.random() - 0.5) * 5);
+                clips.setProperty(i, "pr", 0);
             }
             clips.setProperty(i, "px", x); clips.setProperty(i, "py", y);
             clips.setProperty(i, "ready", true);
@@ -854,7 +854,7 @@ ShellRoot {
                         readonly property bool isColor: kind === "color"
                         readonly property bool textual: !isImage && !isColor
                         readonly property bool sized: pw > 0
-                        readonly property bool hovered: mouse.containsMouse
+                        readonly property bool hovered: hoverZone.containsMouse
                         readonly property bool selected: root.selectedId === cid
                         readonly property bool editing: root.editingId === cid
                         readonly property bool matched: root.matchesItem({ body: body, preview: preview, kind: kind, label: label })
@@ -876,7 +876,6 @@ ShellRoot {
                         x: px
                         y: py
                         z: (hovered || selected || editing) ? 1000000 + pz : (pinned ? 100000 + pz : pz)
-                        rotation: (open || pinned) ? 0 : pr
                         scale: sc
                         opacity: matched ? 1 : 0.13
                         transformOrigin: Item.Center
@@ -885,14 +884,13 @@ ShellRoot {
                         Behavior on x { enabled: card.ready && !root.busy; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         Behavior on y { enabled: card.ready && !root.busy; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
-                        Behavior on rotation { NumberAnimation { duration: 150 } }
                         Behavior on opacity { NumberAnimation { duration: 160 } }
 
                         // measured collapsed size, used by the overlap solver and keyboard navigation
                         Timer {
                             id: sizeSync
                             interval: 140
-                            onTriggered: if (!card.open && card.index >= 0) {
+                            onTriggered: if (card.index >= 0) {
                                 clips.setProperty(card.index, "mw", box.width);
                                 clips.setProperty(card.index, "mh", box.height);
                             }
@@ -918,10 +916,23 @@ ShellRoot {
                             clips.setProperty(index, "py", sy > 0 ? T0 - h * (1 - s) / 2 : B0 - h * (1 + s) / 2);
                         }
 
+                        // hover is tracked over the card plus the strip above it where the buttons live,
+                        // so moving onto a button never counts as leaving the card
+                        MouseArea {
+                            id: hoverZone
+                            x: 0
+                            y: card.open ? -30 : 0
+                            width: box.width
+                            height: box.height + (card.open ? 30 : 0)
+                            enabled: card.matched
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+
                         Rectangle {
                             id: box
-                            width: sized ? card.pw : col.implicitWidth + 24
-                            height: sized ? card.ph : col.implicitHeight + 20
+                            width: sized ? card.pw : col.implicitWidth + 28
+                            height: sized ? card.ph : col.implicitHeight + 24
                             onWidthChanged: sizeSync.restart()
                             onHeightChanged: sizeSync.restart()
                             radius: 14
@@ -934,7 +945,6 @@ ShellRoot {
                                 id: mouse
                                 anchors.fill: parent
                                 enabled: card.matched
-                                hoverEnabled: true
                                 cursorShape: pressed ? Qt.ClosedHandCursor : Qt.ArrowCursor
                                 property real sx; property real sy; property real ox; property real oy
                                 onPressed: m => {
@@ -957,8 +967,8 @@ ShellRoot {
 
                             Column {
                                 id: col
-                                x: 12; y: 10
-                                spacing: 4
+                                x: 14; y: 12
+                                spacing: 5
 
                                 Row {
                                     spacing: 6
@@ -1016,17 +1026,13 @@ ShellRoot {
                                 Item {
                                     id: textBox
                                     visible: card.textual
-                                    readonly property real textW: card.open
-                                        ? Math.min(420, Math.max(90, probe.implicitWidth))
-                                        : Math.min(230, Math.max(60, probe.implicitWidth))
-                                    width: card.sized ? card.pw - 24 : textW
+                                    // the whole text is always shown; only the width is capped and it wraps
+                                    readonly property real textW: Math.min(300, Math.max(90, probe.implicitWidth))
+                                    width: card.sized ? card.pw - 28 : textW
                                     height: card.sized
-                                        ? Math.max(18, card.ph - 20 - 18)
-                                        : (card.open ? Math.max(20, (card.editing ? editor.implicitHeight : txt.implicitHeight))
-                                                     : Math.min(txt.implicitHeight, card.kind === "md" ? 120 : 62))
-                                    clip: true
-                                    Behavior on width { NumberAnimation { duration: 140 } }
-                                    Behavior on height { enabled: !card.sized; NumberAnimation { duration: 140 } }
+                                        ? Math.max(18, card.ph - 24 - 19)
+                                        : Math.max(20, card.editing ? editor.implicitHeight : txt.implicitHeight)
+                                    clip: card.sized
 
                                     Text {
                                         id: txt
@@ -1079,15 +1085,20 @@ ShellRoot {
                                 }
                             }
 
-                            // actions
-                            Row {
-                                visible: (card.hovered || card.selected) && !card.editing
-                                anchors { top: parent.top; right: parent.right; topMargin: 6; rightMargin: 6 }
-                                spacing: 4
-                                Pill { text: "Copy"; pal: root.pal; onClicked: root.copyClip(card.cid) }
-                                Pill { text: card.pinned ? "Unpin" : "Pin"; active: card.pinned; pal: root.pal; onClicked: root.togglePin(card.cid) }
-                                Pill { text: "✕"; danger: true; pal: root.pal; implicitWidth: 26; onClicked: root.deleteClip(card.cid) }
-                            }
+                        }
+
+                        // actions: a small strip above the card, never on top of the text
+                        Row {
+                            id: tools
+                            property bool shown: (card.hovered || card.selected) && !card.editing && card.matched
+                            visible: opacity > 0.01
+                            opacity: shown ? 1 : 0
+                            anchors { right: box.right; bottom: box.top; bottomMargin: 5 }
+                            spacing: 3
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                            Pill { text: "Copy"; pillHeight: 20; fontSize: 10; hoverFx: false; pal: root.pal; onClicked: root.copyClip(card.cid) }
+                            Pill { text: card.pinned ? "Unpin" : "Pin"; pillHeight: 20; fontSize: 10; hoverFx: false; active: card.pinned; pal: root.pal; onClicked: root.togglePin(card.cid) }
+                            Pill { text: "✕"; pillHeight: 20; fontSize: 9; hoverFx: false; danger: true; pal: root.pal; implicitWidth: 22; onClicked: root.deleteClip(card.cid) }
                         }
 
                         // selection frame
